@@ -1,0 +1,9 @@
+#!/bin/bash
+#PBS -l mem=46gb
+#PBS -l walltime=24:00:00
+#PBS -l cput=24:00:00
+#PBS -V
+#PBS -M nwineing@scripps.edu
+#PBS -m a
+R --no-save ${pheno} ${i} < /gpfs/group/schork/nwineing/jnj/lasso/lasso.r
+
