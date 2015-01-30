@@ -19,6 +19,8 @@ Cov_List <- LINE[5]
 PathToSave <- LINE[6]
 Num_Iter <- as.numeric( LINE[7] )
 
+PathToUpdate <- paste(PathToSave,"Update.txt",sep="")
+
 ###################################################
 ## LOAD DATA ######################################
 ###################################################
@@ -28,9 +30,11 @@ library(gplots) # heatmap.2
 library(glmnet)
 
 ## Load Genotype File
+write(paste(Sys.time(),"- Loading GT Data"),PathToUpdate,append=T)
 start_time <- proc.time()
 # GT <- read.table( PathToGT, header=T, nrow=1 )
 GT <- read.csv( PathToGT, header=T )
+write(paste(Sys.time(),"- GT Data Loaded"),PathToUpdate,append=T)
 print( proc.time()-start_time )
 
 ## Load Phenotype File
@@ -80,20 +84,36 @@ for ( c in WHICH_COLS ) {
 }
 
 ## Merge Tables
+write(paste(Sys.time(),"- Merging Tables"),PathToUpdate,append=T)
 MG.1 <- merge( x=PH.2, y=COV, by="IID" )
 MG.2 <- merge( x=MG.1, y=GT[,c(1,7:ncol(GT))], by.x="IID",by.y="FID" )
+write(paste(Sys.time(),"- Tables Merged"),PathToUpdate,append=T)
 
 ###################################################
 ## START LOOPING ##################################
 ###################################################
+
+## Permute Sample Order
+perm_order <- sample( 1:nrow(y), replace=F )
+num_test_samps <- floor( nrow(y)/Num_Iter )
+
+## Set alpha parameters
+ # alpha=1 -> LASSO
+ # alpha=0 -> Ridge
+alpha <- .5
+
+## Specify Lambda Bins
+L.bins <- c("BEST","SE","MIN","MAX")
 
 ## Set up Variables to Store Data/Results
 BETA <- PRED <- LAMBDA <- list()
 
 ## Loop through Phenotypes
 for ( p in 1:length(PHENO_NAMES) ) {
+# for ( p in 2 ) {
 	## Pull out Phenotype Data
 	pheno <- PHENO_NAMES[p]
+	write( paste(Sys.time(),"- ## Running phenotype:",p,"(",pheno,") of",length(PHENO_NAMES)),PathToUpdate,append=T )
 	pheno_rm <- setdiff( PHENO_NAMES, pheno )
 	pheno_cols_rm <- which( colnames(MG.2) %in% pheno_rm )
 	MG <- MG.2[ , -pheno_cols_rm ]
@@ -103,18 +123,17 @@ for ( p in 1:length(PHENO_NAMES) ) {
 	x.cov <- data.matrix( MG[,cov_cols[ 2:length(cov_cols) ] ] )
 	rm_cols <- which( colnames(MG) %in% c( pheno,"IID") )
 	x.all <- data.matrix( MG[,-rm_cols] )
-	## Permute Sample Order
-	perm_order <- sample( 1:nrow(y), replace=F )
-	num_test_samps <- floor( nrow(y)/Num_Iter )
+	rownames(x.cov) <- rownames(x.all) <- MG$IID
 	## Set up some Variables to store data
 	LAMBDA[[pheno]] <- array( ,c(Num_Iter,8) ) ; colnames(LAMBDA[[pheno]]) <- c("Best_C","SE_C","Min_C","Max_C","Best_A","SE_A","Min_A","Max_A")
 	BETA[[pheno]] <- list()
 	BETA[[pheno]]$cov <- BETA[[pheno]]$all <- list() # array( ,c(ncol(x.all),Num_Iter) )
 	PRED[[pheno]] <- list()
-	PRED[[pheno]]$max_lambda <- PRED[[pheno]]$min_lambda <- PRED[[pheno]]$best_lambda <- PRED[[pheno]]$se_lambda <- list() # array( ,c(nrow(x.all.ts),Num_Iter) )
+	PRED[[pheno]]$cov <- PRED[[pheno]]$all <- list() 
+	# PRED[[pheno]]$MAX <- PRED[[pheno]]$MIN <- PRED[[pheno]]$BEST <- PRED[[pheno]]$SE <- list() # array( ,c(nrow(x.all.ts),Num_Iter) )
 	## Loop Through Iterations
 	for ( i in 1:Num_Iter ) {
-		iter <- paste("I",i,"_")
+		iter <- paste("I",i,sep="_")
 		## Specify Training/Test Sets
 		which_samps <- num_test_samps*(i-1)+1:num_test_samps
 		test_set <- perm_order[ which_samps ]
@@ -130,67 +149,60 @@ for ( p in 1:length(PHENO_NAMES) ) {
 		## Run Lasso Regression
 		 # On Covariates Alone
 		print("Fitting Covariates")
-		fit.cov <- glmnet(x=x.cov.tr, y=y.tr)
-		cv.fit.cov <- cv.glmnet(x=x.cov.tr, y=y.tr)
+		fit.cov <- glmnet(x=x.cov.tr, y=y.tr, alpha=alpha)
+		cv.fit.cov <- cv.glmnet(x=x.cov.tr, y=y.tr, alpha=alpha, nfolds=20)
 		L.cov.best <- cv.fit.cov$lambda.min
 		L.cov.se <- cv.fit.cov$lambda.1se
 		L.cov.min <- min(fit.cov$lambda)
 		L.cov.max <- max(fit.cov$lambda)
-		B.cov.best <- data.matrix( coef(fit.cov, s=L.cov.best ) )
-		B.cov.se <- data.matrix( coef(fit.cov, s=L.cov.se ) )
-		B.cov.min <- data.matrix( coef(fit.cov, s=L.cov.min ) )
-		B.cov.max <- data.matrix( coef(fit.cov, s=L.cov.max ) )
-		pred.cov.best <- predict(fit.cov, newx=x.cov.ts, s=cv.fit.cov$lambda.min )
-		pred.cov.se <- predict(fit.cov, newx=x.cov.ts, s=cv.fit.cov$lambda.1se ) 
-		pred.cov.min <- predict(fit.cov, newx=x.cov.ts, s=min(fit.cov$lambda) ) 
-		pred.cov.max <- predict(fit.cov, newx=x.cov.ts, s=max(fit.cov$lambda) )
+		B.cov <- data.matrix( coef(fit.cov, s=c(L.cov.best,L.cov.se,L.cov.min,L.cov.max) ) )
+		pred.cov <- predict(fit.cov, newx=x.cov.ts, s=c(L.cov.best,L.cov.se,L.cov.min,L.cov.max) )
+		colnames(B.cov) <- colnames(pred.cov) <- L.bins
 		# pairs( data.frame( pred.cov.best, pred.cov.se, pred.cov.max, pred.cov.min ) )
 
 		 # On Covariates + SNPs
 		print("Fitting Covariates + SNPs")
-		fit.all <- glmnet(x=x.all.tr, y=y.tr)
-		cv.fit.all <- cv.glmnet(x=x.all.tr, y=y.tr)
+		write(paste(Sys.time(),"- Fitting Covariates + SNPs"),PathToUpdate,append=T)
+		fit.all <- glmnet(x=x.all.tr, y=y.tr, alpha=alpha)
+		cv.fit.all <- cv.glmnet(x=x.all.tr, y=y.tr, alpha=alpha, nfolds=20)
 		L.all.best <- cv.fit.all$lambda.min
 		L.all.se <- cv.fit.all$lambda.1se
 		L.all.min <- min(fit.all$lambda)
 		L.all.max <- max(fit.all$lambda)
-		B.all.best <- data.matrix( coef(fit.all, s=L.all.best ) )
-		B.all.se <- data.matrix( coef(fit.all, s=L.all.se ) )
-		B.all.min <- data.matrix( coef(fit.all, s=L.all.min ) )
-		B.all.max <- data.matrix( coef(fit.all, s=L.all.max ) )
-		pred.all.best <- predict(fit.all, newx=x.all.ts, s=cv.fit.all$lambda.min )
-		pred.all.se <- predict(fit.all, newx=x.all.ts, s=cv.fit.all$lambda.1se ) 
-		pred.all.min <- predict(fit.all, newx=x.all.ts, s=min(fit.all$lambda) ) 
-		pred.all.max <- predict(fit.all, newx=x.all.ts, s=max(fit.all$lambda) ) 
+		B.all <- data.matrix( coef(fit.all, s=c(L.all.best,L.all.se,L.all.min,L.all.max) ) )
+		pred.all <- predict(fit.all, newx=x.all.ts, s=c(L.all.best,L.all.se,L.all.min,L.all.max) )
+		colnames(B.all) <- colnames(pred.all) <- L.bins
 		# pairs( data.frame( pred.all.best, pred.all.se, pred.all.max, pred.all.min ) )
+
+		## Filter out unused Beta values
+		which_zero <- which( rowSums(B.all)==0 )
+		B.all.2 <- B.all[ -which_zero, ]
 
 		## Compile Outputs
 		print("Compiling Data")
 		LAMBDA[[pheno]][i,] <- c( L.cov.best, L.cov.se, L.cov.min, L.cov.max, L.all.best, L.all.se, L.all.min, L.all.max )
-		BETA[[pheno]]$cov[[iter]] <- data.frame( BEST=B.cov.best[,1], SE=B.cov.se[,1], MIN=B.cov.min[,1], MAX=B.cov.max[,1] )
-		BETA[[pheno]]$all[[iter]] <- data.frame( BEST=B.all.best[,1], SE=B.all.se[,1], MIN=B.all.min[,1], MAX=B.all.max[,1] )
-		# BETA[[pheno]]$best_lambda[[iter]] <- data.frame( COV=B.cov.best, ALL=B.all.best )
-		# BETA[[pheno]]$se_lambda[[iter]] <- data.frame( COV=B.cov.se, ALL=B.all.se )
-		# BETA[[pheno]]$min_lambda[[iter]] <- data.frame( COV=B.cov.min, ALL=B.all.min )
-		# BETA[[pheno]]$max_lambda[[iter]] <- data.frame( COV=B.cov.max, ALL=B.all.max )
-		PRED[[pheno]]$best_lambda[[iter]] <- data.frame( OBS=y.ts, PRED_C=pred.cov.best, PRED_A=pred.all.best )
-		PRED[[pheno]]$se_lambda[[iter]] <- data.frame( OBS=y.ts, PRED_C=pred.cov.se, PRED_A=pred.all.se )
-		PRED[[pheno]]$min_lambda[[iter]] <- data.frame( OBS=y.ts, PRED_C=pred.cov.min, PRED_A=pred.all.min )
-		PRED[[pheno]]$max_lambda[[iter]] <- data.frame( OBS=y.ts, PRED_C=pred.cov.max, PRED_A=pred.all.max )
+		BETA[[pheno]]$cov[[iter]] <- data.frame( B.cov )
+		BETA[[pheno]]$all[[iter]] <- data.frame( B.all.2 )
+		PRED[[pheno]]$cov[[iter]] <- data.frame( y.ts, pred.cov )
+		PRED[[pheno]]$all[[iter]] <- data.frame( y.ts, pred.all )
 
 		## Status Update
 		print(paste( "Done with iter:",i,"of",Num_Iter) )
-	}
-}
+		write(paste(Sys.time(),"- Done with iter:",i,"of",Num_Iter),PathToUpdate,append=T)
+	} # Close Iteration Loop
+	print(paste( "## Done with phenotype:",p,"(",pheno,") of",length(PHENO_NAMES) ))
+} # Close Phenotype Loop
 
-fit1 <- fit.cov
-fit1 <- fit.all
-COLS.list <- c("firebrick2","chocolate2","gold2","springgreen2","steelblue2","slateblue3")
-COLS <- colorRampPalette(COLS.list)(nrow(fit1$beta))
-plot( 0,0,type="n", xlim=range(fit1$lambda), ylim=range(fit1$beta) )
-for ( l in 1:nrow(fit1$beta) ) {
-	points( fit1$lambda, fit1$beta[l,], col=COLS[l], type="o", pch=20 )
-}
+write(paste(Sys.time(),"- Done fitting models"),PathToUpdate,append=T)
+
+# fit1 <- fit.cov
+# fit1 <- fit.all
+# COLS.list <- c("firebrick2","chocolate2","gold2","springgreen2","steelblue2","slateblue3")
+# COLS <- colorRampPalette(COLS.list)(nrow(fit1$beta))
+# plot( 0,0,type="n", xlim=range(fit1$lambda), ylim=range(fit1$beta) )
+# for ( l in 1:nrow(fit1$beta) ) {
+# 	points( fit1$lambda, fit1$beta[l,], col=COLS[l], type="o", pch=20 )
+# }
 
 # n <- ncol(coef(fit.cov))
 # plot( 0,0,type="n", xlim=c(1,1.1*n), ylim=range(coef(fit.cov)) )
@@ -201,6 +213,130 @@ for ( l in 1:nrow(fit1$beta) ) {
 # plot( 0,0,type="n", xlim=c(1,1.1*n), ylim=range(coef(fit.all)) )
 # for ( i in 1:nrow(coef(fit.all)) ) { points( 1:n, coef(fit.all)[i,], col=i, type="o", pch=20 ) }
 # text( n, coef(fit.all)[,n], label=rownames(coef(fit.all)), col=1:nrow(coef(fit.all)), pos=4 )
+
+###################################################
+## WRITE DATA #####################################
+###################################################
+
+## Write Data
+save( BETA, file=paste(PathToSave,"BETA.Rdata",sep="") )
+save( PRED, file=paste(PathToSave,"PRED.Rdata",sep="") )
+save( LAMBDA, file=paste(PathToSave,"LAMBDA.Rdata",sep="") )
+
+write(paste(Sys.time(),"- Done saving Rdata"),PathToUpdate,append=T)
+
+###################################################
+## PLOT RESULTS ###################################
+###################################################
+
+## Compile Predicted Values into one big data frame
+ # 9 columns: 1 actual, 4 cov pred, 4 cov+SNP pred
+PRED.2 <- list()
+for ( p in 1:length(PRED) ) {
+	pheno <- names(PRED)[p]
+	PRED.2[[pheno]] <- array( , c(0,9) )
+	colnames(PRED.2[[pheno]]) <- c( "OBS",paste(L.bins,"C",sep="_"),paste(L.bins,"A",sep="_") )
+	for ( i in 1:Num_Iter ) {
+		iter <- paste("I",i,sep="_")
+		TEMP <- data.frame( PRED[[pheno]]$cov[[iter]], PRED[[pheno]]$all[[iter]][,L.bins] )
+ 		colnames(TEMP) <- c( "OBS",paste(L.bins,"C",sep="_"),paste(L.bins,"A",sep="_") )
+		PRED.2[[pheno]] <- rbind( PRED.2[[pheno]], TEMP )
+	}
+}
+
+## Plot Predicted vs Actual Values
+pheno <- PHENO_NAMES[2]
+par(mfrow=c(2,4))
+for ( c in 2:ncol(PRED.2[[pheno]]) ) {
+	MOD <- lm( PRED.2[[pheno]][,1] ~ PRED.2[[pheno]][,c] )
+	NAMES <- colnames( PRED.2[[pheno]] )
+	plot( PRED.2[[pheno]][,1] ~ PRED.2[[pheno]][,c], pch="+", col="steelblue2", xlab=NAMES[c], ylab=NAMES[1], main="Predicted vs Observed Values" )
+	abline( MOD, col="steelblue4" )
+	P_VAL <- summary(MOD)$coefficients[2,4]
+	COR <- cor( PRED.2[[pheno]][,1], PRED.2[[pheno]][,c] )
+	if ( P_VAL < .05 ) { STAR <- "*" }else{ STAR <- "" }
+	text( min(PRED.2[[pheno]][,c]), min(PRED.2[[pheno]][,1]), label=paste(STAR,"P:",formatC(P_VAL,format="e",digits=2)), pos=4 )
+	text( min(PRED.2[[pheno]][,c]), min(PRED.2[[pheno]][,1])+4, label=paste("Corr:",round(COR,3)), pos=4 )
+}
+
+## Correlation b/n Observed & Predicted
+CORS <- array( ,c(9,4) )
+colnames(CORS) <- L.bins
+rownames(CORS) <- colnames(PRED.2[[1]])
+for ( p in 1:length(PHENO_NAMES) ) { CORS[,p] <- cor( PRED.2[[p]] )[,1] }
+ # Plot it
+COLS <- c("firebrick2","gold2","chartreuse2","deepskyblue2")
+YLIM <- c(-1,1)
+# plot( 0,0,type="n", xlim=XLIM, ylim=YLIM, main="Correlation Coefficient b/n Predicted & Observed", xlab="" )
+barplot( t(CORS), beside=T, col=COLS, ylim=YLIM, main="Correlation Coefficient b/n Predicted & Observed", ylab="Correlation Coef", las=2 )
+abline( h=seq(-1,1,.2), lty=2, col="grey50" )
+barplot( t(CORS), beside=T, col=COLS, ylim=YLIM, main="Correlation Coefficient b/n Predicted & Observed", ylab="Correlation Coef", las=2, add=T )
+
+## Merge Beta Values from different Iterations
+BETA.2 <- list()
+for ( p in 1:length(BETA) ) {
+	pheno <- names(BETA)[p]
+	BETA.2[[pheno]] <- list()
+	for ( l in 1:length(L.bins) ) {
+		lbin <- L.bins[l]
+		BETA.2[[pheno]][[lbin]] <- list()
+		BETA.2[[pheno]][[lbin]]$cov <- data.frame( Row.names=rownames(BETA[[pheno]]$cov$I_1), I_1=BETA[[pheno]]$cov$I_1[,lbin] )
+		rownames(BETA.2[[pheno]][[lbin]]$cov) <- rownames( BETA[[pheno]]$cov$I_1 )
+		BETA.2[[pheno]][[lbin]]$all <- data.frame( Row.names=rownames(BETA[[pheno]]$all$I_1), I_1=BETA[[pheno]]$all$I_1[,lbin] )
+		rownames(BETA.2[[pheno]][[lbin]]$all) <- rownames( BETA[[pheno]]$all$I_1 )
+		for ( i in 2:Num_Iter ) {
+			iter <- paste("I",i,sep="_")
+			TEMP <- data.frame( BETA[[pheno]]$cov[[iter]][,lbin] )
+			rownames(TEMP) <- rownames(BETA[[pheno]]$cov[[iter]])
+			colnames(TEMP) <- iter
+			BETA.2[[pheno]][[lbin]]$cov <- merge( BETA.2[[pheno]][[lbin]]$cov, TEMP, by.x="Row.names", by.y="row.names", all=T ) # [,2:(i+2)]
+			TEMP <- data.frame( BETA[[pheno]]$all[[iter]][,lbin] )
+			rownames(TEMP) <- rownames(BETA[[pheno]]$all[[iter]])
+			colnames(TEMP) <- iter
+			BETA.2[[pheno]][[lbin]]$all <- merge( BETA.2[[pheno]][[lbin]]$all, TEMP, by.x="Row.names", by.y="row.names", all=T ) # [,2:(i+1)]
+		}
+		## Remove Beta Values that are 0 for all Iterations
+		 # Cov
+		which_zero <- which( rowSums(BETA.2[[pheno]][[lbin]]$all[2:(Num_Iter+1)],na.rm=T)==0 )
+		if ( length(which_zero) > 0 ) {
+			NAMES <- BETA.2[[pheno]][[lbin]]$cov[ -which_zero, "Row.names" ]
+			BETA.2[[pheno]][[lbin]]$cov <- BETA.2[[pheno]][[lbin]]$cov[ -which_zero, 2:(Num_Iter+1) ]
+		}else{
+			NAMES <- BETA.2[[pheno]][[lbin]]$cov[ , "Row.names" ]
+			BETA.2[[pheno]][[lbin]]$cov <- BETA.2[[pheno]][[lbin]]$cov[ , 2:(Num_Iter+1) ]
+		}
+		rownames(BETA.2[[pheno]][[lbin]]$cov) <- NAMES
+		 # All
+		which_zero <- which( rowSums(BETA.2[[pheno]][[lbin]]$all[2:(Num_Iter+1)],na.rm=T)==0 )
+		if ( length(which_zero) > 0 ) {
+			NAMES <- BETA.2[[pheno]][[lbin]]$all[ -which_zero, "Row.names" ]
+			BETA.2[[pheno]][[lbin]]$all <- BETA.2[[pheno]][[lbin]]$all[ -which_zero, 2:(Num_Iter+1) ]
+		}else{
+			NAMES <- BETA.2[[pheno]][[lbin]]$all[ , "Row.names" ]
+			BETA.2[[pheno]][[lbin]]$all <- BETA.2[[pheno]][[lbin]]$all[ , 2:(Num_Iter+1) ]
+		}
+		rownames(BETA.2[[pheno]][[lbin]]$all) <- NAMES
+	}
+}
+
+## Plot Coefficients vs Iteration
+COLS.list <- c("firebrick2","chocolate2","gold1","springgreen2","steelblue2","slateblue3")
+COLS <- colorRampPalette(COLS.list)(Num_Iter)
+for ( p in 1:length(BETA.2) ) {
+	pheno <- names(BETA.2)[p]
+	par(mfrow=c(2,4))
+	for ( set in c("cov","all") ) {
+		for ( l in 1:length(L.bins) ) {
+			lbin <- L.bins[l]
+			par(ask=T)
+			# barplot( t(data.matrix( BETA.2[[pheno]][[lbin]][[set]] )), col=COLS, beside=T, main=paste(pheno,":",set,"-",lbin), las=2 )
+			boxplot( t(data.matrix( BETA.2[[pheno]][[lbin]][[set]] )), col=COLS, beside=T, main=paste(pheno,":",set,"-",lbin), las=2 )
+		}
+	}
+}
+
+
+
 
 
 #################################################
@@ -276,12 +412,12 @@ for ( l in 1:nrow(fit1$beta) ) {
 # m.all <- coef(fit.all, s=cv.fit.all$lambda.1se)
 # pred.all <- m.all[1] + (xall.ts %*% m.all[2:dim(m.all)[1]])
 
-pred.out <- data.frame(y.ts, pred.cov, pred.all)
+# pred.out <- data.frame(y.ts, pred.cov, pred.all)
 
-names(pred.out) <- c("observed","covariates","covariates-snps")
-#write.csv(pred.out, paste("/gpfs/group/schork/nwineing/jnj/lasso/", set, "/lasso-pred-", X, ".csv", sep=""), quote=FALSE, row.names=FALSE)
-write.csv(pred.out, paste(set, "/1se-lasso-pred-", X, ".csv", sep=""), quote=FALSE, row.names=FALSE)
-q()
+# names(pred.out) <- c("observed","covariates","covariates-snps")
+# #write.csv(pred.out, paste("/gpfs/group/schork/nwineing/jnj/lasso/", set, "/lasso-pred-", X, ".csv", sep=""), quote=FALSE, row.names=FALSE)
+# write.csv(pred.out, paste(set, "/1se-lasso-pred-", X, ".csv", sep=""), quote=FALSE, row.names=FALSE)
+# q()
 
 
 
