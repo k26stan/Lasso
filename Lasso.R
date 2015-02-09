@@ -94,8 +94,8 @@ write(paste(Sys.time(),"- Tables Merged"),PathToUpdate,append=T)
 ###################################################
 
 ## Permute Sample Order
-perm_order <- sample( 1:nrow(y), replace=F )
-num_test_samps <- floor( nrow(y)/Num_Iter )
+perm_order <- sample( 1:nrow(MG.2), replace=F )
+num_test_samps <- floor( nrow(MG.2)/Num_Iter )
 
 ## Set alpha parameters
  # alpha=1 -> LASSO
@@ -271,6 +271,7 @@ YLIM <- c(-1,1)
 barplot( t(CORS), beside=T, col=COLS, ylim=YLIM, main="Correlation Coefficient b/n Predicted & Observed", ylab="Correlation Coef", las=2 )
 abline( h=seq(-1,1,.2), lty=2, col="grey50" )
 barplot( t(CORS), beside=T, col=COLS, ylim=YLIM, main="Correlation Coefficient b/n Predicted & Observed", ylab="Correlation Coef", las=2, add=T )
+legend( "topright", fill=COLS, legend=colnames(CORS) )
 
 ## Merge Beta Values from different Iterations
 BETA.2 <- list()
