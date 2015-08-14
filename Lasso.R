@@ -11,6 +11,7 @@ LINE <- commandArgs(trailingOnly = TRUE)
 # LINE <- c("/projects/janssen/Psych/Lasso/20150127_PHENO_NAMES/PsychChip_R092670-PSY-3006_R092670_arm.raw","/projects/janssen/Psych/Pheno/Full_Table.txt", "/projects/janssen/Pysch/Pheno/Full_Table.txt","/projects/janssen/Psych/Pheno/PHENO_NAMES.txt","BL_PANSS,AGE_DIAG,PC1,PC2","/projects/janssen/Psych/Lasso/20150127_PHENO_NAMES/",10)
 # LINE <- c("/projects/janssen/Psych/Lasso/20150127_PHENO_NAMES/TEMP_1000.csv","/projects/janssen/Psych/Pheno/Full_Table.txt", "/projects/janssen/Psych/Pheno/Full_Table.txt","/projects/janssen/Psych/Pheno/PHENO_NAMES.txt","BL_PANSS,AGE_DIAG,PC1,PC2","/projects/janssen/Psych/Lasso/20150127_PHENO_NAMES/",10)
 # LINE <- c("/Users/kstandis/Downloads/20150126b_PHENO_NAMES/TEMP_1000.csv","/Users/kstandis/Data/Burn_Psych/Data/20150125_Full_Table.txt", "/Users/kstandis/Data/Burn_Psych/Data/20150125_Full_Table.txt","/Users/kstandis/Downloads/20150126b_PHENO_NAMES/PHENO_NAMES.txt","BL_PANSS,AGE_DIAG,PC1,PC2","/Users/kstandis/Downloads/20150126b_PHENO_NAMES/",10)
+# LINE <- c("/Users/kstandis/Downloads/20150127_Lasso/TEMP_1000.csv","/Users/kstandis/Data/Burn_Psych/Data/20150125_Full_Table.txt", "/Users/kstandis/Data/Burn_Psych/Data/20150125_Full_Table.txt","/Users/kstandis/Downloads/20150126b_PHENO_NAMES/PHENO_NAMES.txt","BL_PANSS,AGE_DIAG,PC1,PC2","/Users/kstandis/Downloads/20150126b_PHENO_NAMES/",10)
 PathToGT <- LINE[1]
 PathToPheno <- LINE[2]
 PathToCov <- LINE[3]
