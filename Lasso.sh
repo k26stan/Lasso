@@ -118,7 +118,7 @@ fi
 sed 's/ /,/g' ${OUT_DIR}/${VAR_FILE%%.bed}.raw > ${OUT_DIR}/${VAR_FILE%%.bed}.csv
 
 ## Done
-if [ "$START_STEP" -le 2 ]; then
+# if [ "$START_STEP" -le 2 ]; then
 echo `date` "2 - Convert Variant File - DONE" > ${UPDATE_FILE}
 printf "V\nV\nV\nV\nV\nV\nV\nV\n"
 fi
@@ -140,15 +140,6 @@ ${PHENO_DIR}/${PHENO_NAME_LIST} \
 ${COVS_COMMAND} \
 ${OUT_DIR} \
 ${NUM_ITER}
-
-
-
-
-
-
-
-
-
 
 
 ## Done
