@@ -56,6 +56,7 @@ COV.l <- read.table( PathToCov, header=T, sep="\t" )
 PHENO_NAMES <- as.character( read.table( Pheno_Name_List )[,1] )
 N_PHENO <- length(PHENO_NAMES)
 
+print(paste( "Everything Loaded:", (proc.time()-start_time)[3] ))
 ###################################################
 ## GET ORGANIZED ##################################
 ###################################################
@@ -85,6 +86,7 @@ for ( c in 2:ncol(PH.2) ) {
 }
 
 ## Impute Missing Genotypes
+print(paste( "Imputing Genotypes:", (proc.time()-start_time)[3] ))
 WHICH_COLS <- which( apply( GT, 2, function(x) NA %in% x ) )
 for ( c in WHICH_COLS ) {
     MN <- mean( GT[,c], na.rm=TRUE )
@@ -123,6 +125,7 @@ for ( p in 1:length(PHENO_NAMES) ) {
 	## Pull out Phenotype Data
 	pheno <- PHENO_NAMES[p]
 	write( paste(Sys.time(),"- ## Running phenotype:",p,"(",pheno,") of",length(PHENO_NAMES)),PathToUpdate,append=T )
+	print( paste("## Running phenotype:",p,"(",pheno,") of",length(PHENO_NAMES), (proc.time()-start_time)[3]) )
 	pheno_rm <- setdiff( PHENO_NAMES, pheno )
 	pheno_cols_rm <- which( colnames(MG.2) %in% pheno_rm )
 	MG <- MG.2[ , -pheno_cols_rm ]
@@ -241,14 +244,17 @@ save( PRED, file=paste(PathToSave,"PRED.Rdata",sep="") )
 save( LAMBDA, file=paste(PathToSave,"LAMBDA.Rdata",sep="") )
 save( L, file=paste(PathToSave,"L.Rdata",sep="") )
 save( CV, file=paste(PathToSave,"CV.Rdata",sep="") )
-load( file=paste(PathToSave,"BETA.Rdata",sep="") )
-load( file=paste(PathToSave,"PRED.Rdata",sep="") )
-load( file=paste(PathToSave,"LAMBDA.Rdata",sep="") )
-load( file=paste(PathToSave,"L.Rdata",sep="") )
-load( file=paste(PathToSave,"CV.Rdata",sep="") )
 
 write(paste(Sys.time(),"- Done saving Rdata"),PathToUpdate,append=T)
 
+## Load From TSCC
+# load( file=paste(PathToSave,"BETA.Rdata",sep="") )
+# load( file=paste(PathToSave,"PRED.Rdata",sep="") )
+# load( file=paste(PathToSave,"LAMBDA.Rdata",sep="") )
+# load( file=paste(PathToSave,"L.Rdata",sep="") )
+# load( file=paste(PathToSave,"CV.Rdata",sep="") )
+
+## Load from MAC
 # load( "Data/Burn_Psych/Plots/20150817_Lasso/Alpha.8/L.Rdata" )
 # load( "Data/Burn_Psych/Plots/20150817_Lasso/Alpha.8/LAMBDA.Rdata" )
 # load( "Data/Burn_Psych/Plots/20150817_Lasso/Alpha.8/BETA.Rdata" )
@@ -549,11 +555,12 @@ for ( p in 1:length(BETA.2) ) {
 ## Model Averaging
  # Take simple mean of Beta Coefficients to create "Averaged Model"
  # Then calculate R2 for "Averaged Model" while iteratively including additional terms
+print(paste( "Calculating Averaged Model Predictions" ))
 BETA.3 <- lapply( BETA.2, function(x) lapply( x, function(y) lapply( y, function(z) rowMeans(z) )))
 MG.3 <- data.frame( MG.2, 1 )
 colnames(MG.3)[ncol(MG.3)] <- "(Intercept)"
 MG.3 <- MG.3[ which(MG.3$IID %in% rownames(PRED.2[[1]]) ), ]
-Num_Par <- 300
+Num_Par <- 500
 # barplot( BETA.3$DEL_PANSS$SE$all )
 PRED.3 <- list()
 for ( p in 1:length(BETA.3) ) {

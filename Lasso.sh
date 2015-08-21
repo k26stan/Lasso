@@ -133,7 +133,7 @@ echo `date` "3 - Lasso Regression" >> ${UPDATE_FILE}
 NUM_ITER=10
 ## Run Lasso Regression
 Rscript ${LASSO_R} \
-${OUT_DIR}/${VAR_FILE%%.bed}.raw \
+${OUT_DIR}/${VAR_FILE%%.bed}.csv \
 ${PHENO_PATH} \
 ${COV_PATH} \
 ${PHENO_DIR}/${PHENO_NAME_LIST} \
