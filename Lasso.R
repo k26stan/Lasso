@@ -13,6 +13,7 @@ LINE <- commandArgs(trailingOnly = TRUE)
 # LINE <- c("/Users/kstandis/Downloads/20150126b_PHENO_NAMES/TEMP_1000.csv","/Users/kstandis/Data/Burn_Psych/Data/20150125_Full_Table.txt", "/Users/kstandis/Data/Burn_Psych/Data/20150125_Full_Table.txt","/Users/kstandis/Downloads/20150126b_PHENO_NAMES/PHENO_NAMES.txt","BL_PANSS,AGE_DIAG,PC1,PC2","/Users/kstandis/Downloads/20150126b_PHENO_NAMES/",10)
 # LINE <- c("/Users/kstandis/Downloads/20150127_Lasso/TEMP_1000.csv","/Users/kstandis/Data/Burn_Psych/Data/20150125_Full_Table.txt", "/Users/kstandis/Data/Burn_Psych/Data/20150125_Full_Table.txt","/Users/kstandis/Downloads/20150126b_PHENO_NAMES/PHENO_NAMES.txt","BL_PANSS,AGE_DIAG,PC1,PC2","/Users/kstandis/Downloads/20150126b_PHENO_NAMES/",10)
 # LINE <- c("/projects/janssen/Psych/Lasso/20150817_PHENO_NAMES/Merged_CND_DEL_p01.Both.csv","/projects/janssen/Psych/Pheno/Full_Table.txt", "/projects/janssen/Psych/Pheno/Full_Table.txt","/projects/janssen/Psych/Pheno/PHENO_NAMES.txt","BL_PANSS,AGE_DIAG,PC1,PC2","/projects/janssen/Psych/Lasso/20150817_PHENO_NAMES/",10)
+# LINE <- c("/projects/janssen/ASSOCIATION/20151201_Previous_CandGWAS/Nearby_SNPs.tpA.traw","/projects/janssen/ASSOCIATION/PH-PHENOTYPES/20150520_Full_Table.txt", "/projects/janssen/ASSOCIATION/PH-PHENOTYPES/20150520_Full_Table.txt","/projects/janssen//Heritability/PhenoCov_Lists/Manu_PhenoCovs_Derived.SEL.txt","DAS_BL_MN,PC1,PC2","/projects/janssen/ASSOCIATION/20151201_Previous_CandGWAS/20151202_Lasso/",10)
 PathToGT <- LINE[1]
 PathToPheno <- LINE[2]
 PathToCov <- LINE[3]
@@ -20,6 +21,7 @@ Pheno_Name_List <- LINE[4]
 Cov_List <- LINE[5]
 PathToSave <- LINE[6]
 Num_Iter <- as.numeric( LINE[7] )
+if ( !file.exists(PathToSave) ) { dir.create( PathToSave ) }
 
 ## Path To Bim File
 TEMP <- unlist(strsplit( PathToGT, "/" ))
@@ -39,12 +41,23 @@ library(glmnet)
 ## Load Genotype File
 write(paste(Sys.time(),"- Loading GT Data"),PathToUpdate,append=T)
 start_time <- proc.time()
-# GT <- read.table( PathToGT, header=T, nrow=1 )
-GT <- read.csv( PathToGT, header=T )
+if ( substr(PathToGT,(nchar(PathToGT)-3),nchar(PathToGT))=="traw" ) {
+	GT.l <- read.table( PathToGT, header=T )
+	BIM <- GT.l[ ,1:6 ]
+	GT <- t( GT.l[ ,-(1:6) ] )
+	rownames(GT) <- gsub(".","-",sapply(strsplit(rownames(GT),"_"),"[",1),fixed=T)
+	colnames(GT) <- BIM$SNP
+	LD <- .5
+	Which_SNPs <- as.character( read.table( paste("/projects/janssen/ASSOCIATION/20151201_Previous_CandGWAS/20151202_CandidateGWAS/TAB-NearbyCompile.LD",LD,".txt",sep="") )[,1] )
+	Which_SNPs <- Which_SNPs[ which(Which_SNPs %in% colnames(GT)) ]
+	GT <- GT[ , Which_SNPs ]
+}else{
+	GT <- read.csv( PathToGT, header=T ) 
+	BIM <- read.table( PathToGTKey, header=F, sep="\t" )
+	colnames(BIM) <- c("CHR","SNP","X","POS","REF","ALT")
+}
 write(paste(Sys.time(),"- GT Data Loaded"),PathToUpdate,append=T)
 print(paste( "Genotypes Loaded:", (proc.time()-start_time)[3] ))
-BIM <- read.table( PathToGTKey, header=F, sep="\t" )
-colnames(BIM) <- c("CHR","SNP","X","POS","REF","ALT")
 
 ## Load Phenotype File
 PH.l <- read.table( PathToPheno, header=T, sep="\t" )
@@ -53,7 +66,10 @@ PH.l <- read.table( PathToPheno, header=T, sep="\t" )
 COV.l <- read.table( PathToCov, header=T, sep="\t" )
 
 ## Load Phenotype Names File
-PHENO_NAMES <- as.character( read.table( Pheno_Name_List )[,1] )
+PHENO_COV_LIST <- read.table( Pheno_Name_List, fill=T )
+PHENO_NAMES <- as.character( PHENO_COV_LIST[,1] )
+PHENO_NAMES <- c("DEL_MNe_MN","DEL_lCRP_MNe_MN","DEL_rSJC_MNe_MN","DEL_rTJC_MNe_MN")
+COV_NAMES <- c("DAS_BL_MN","lCRP_BL_MN","rSJC_BL_MN","rTJC_BL_MN")
 N_PHENO <- length(PHENO_NAMES)
 
 print(paste( "Everything Loaded:", (proc.time()-start_time)[3] ))
@@ -61,12 +77,17 @@ print(paste( "Everything Loaded:", (proc.time()-start_time)[3] ))
 ## GET ORGANIZED ##################################
 ###################################################
 
-## Pull out Covariate Data
- # Split Covariate List
-Cov_List.sub <- gsub( "PC","PC_", Cov_List )
-Cov_List.sp <- strsplit( Cov_List.sub, "," )[[1]]
-cov_cols <- which( colnames(COV.l) %in% Cov_List.sp )
+## Put Covariates Together w/ PCs & Stuff...I dunno
+COV_LISTS <- lapply( COV_NAMES, function(x) paste(x,"PC1,PC2",sep=",") )
+cov_cols <- which( colnames(COV.l) %in% c(COV_NAMES,"PC1","PC2") )
 COV <- COV.l[ , c(1,cov_cols) ]
+
+# ## Pull out Covariate Data
+#  # Split Covariate List
+# Cov_List.sub <- gsub( "PC","PC_", Cov_List )
+# Cov_List.sp <- strsplit( Cov_List.sub, "," )[[1]]
+# cov_cols <- which( colnames(COV.l) %in% Cov_List.sp )
+# COV <- COV.l[ , c(1,cov_cols) ]
 
 ## Impute Missing Covariate Data
 for ( c in 2:ncol(COV) ) {
@@ -96,8 +117,9 @@ for ( c in WHICH_COLS ) {
 
 ## Merge Tables
 write(paste(Sys.time(),"- Merging Tables"),PathToUpdate,append=T)
-MG.1 <- merge( x=PH.2, y=COV, by="IID" )
-MG.2 <- merge( x=MG.1, y=GT[,c(1,7:ncol(GT))], by.x="IID",by.y="FID" )
+MG.1 <- merge( x=PH.2, y=COV, by="ID_2" )
+# MG.2 <- merge( x=MG.1, y=GT[,c(1,7:ncol(GT))], by.x="ID_2",by.y="FID" )
+MG.2 <- merge( x=MG.1, y=GT, by.x="ID_2",by.y="row.names" )
 write(paste(Sys.time(),"- Tables Merged"),PathToUpdate,append=T)
 
 ###################################################
@@ -124,9 +146,10 @@ for ( p in 1:length(PHENO_NAMES) ) {
 # for ( p in 2 ) {
 	## Pull out Phenotype Data
 	pheno <- PHENO_NAMES[p]
+	covs <- COV_NAMES[p]
 	write( paste(Sys.time(),"- ## Running phenotype:",p,"(",pheno,") of",length(PHENO_NAMES)),PathToUpdate,append=T )
 	print( paste("## Running phenotype:",p,"(",pheno,") of",length(PHENO_NAMES), (proc.time()-start_time)[3]) )
-	pheno_rm <- setdiff( PHENO_NAMES, pheno )
+	pheno_rm <- setdiff( c(PHENO_NAMES,COV_NAMES), c(pheno,covs) )
 	pheno_cols_rm <- which( colnames(MG.2) %in% pheno_rm )
 	MG <- MG.2[ , -pheno_cols_rm ]
 	## Define Matrices
@@ -151,13 +174,19 @@ for ( p in 1:length(PHENO_NAMES) ) {
 	for ( i in 1:Num_Iter ) {
 		iter <- paste("I",i,sep="_")
 		## Specify Training/Test Sets
-		which_samps <- num_test_samps*(i-1)+1:num_test_samps
+		if ( i==Num_Iter ) {
+			which_samps <- (num_test_samps*(i-1)+1):length(perm_order)
+		}else{
+			which_samps <- num_test_samps*(i-1)+1:num_test_samps
+		}
 		test_set <- perm_order[ which_samps ]
 		train_set <- perm_order[ -which_samps ]
 		 # Pull out Data for each
+		id.tr <- MG$ID_2[ train_set ]
 		y.tr <- y[ train_set, ]
 		x.cov.tr <- x.cov[ train_set, ]
 		x.all.tr <- x.all[ train_set, ]
+		id.ts <- MG$ID_2[ test_set ]
 		y.ts <- y[ test_set, ]
 		x.cov.ts <- x.cov[ test_set, ]
 		x.all.ts <- x.all[ test_set, ]
@@ -205,6 +234,7 @@ for ( p in 1:length(PHENO_NAMES) ) {
 		BETA[[pheno]]$all[[iter]] <- data.frame( B.all.2 )
 		PRED[[pheno]]$cov[[iter]] <- data.frame( y.ts, pred.cov )
 		PRED[[pheno]]$all[[iter]] <- data.frame( y.ts, pred.all )
+		rownames(PRED[[pheno]]$cov[[iter]]) <- rownames(PRED[[pheno]]$all[[iter]]) <- id.ts
 
 		## Status Update
 		print(paste( "Done with iter:",i,"of",Num_Iter) )
@@ -282,6 +312,7 @@ for ( p in 1:length(PRED) ) {
 
 ## Plot Predicted vs Actual Values
 COLS <- c("firebrick2","gold2","chartreuse2","deepskyblue2")
+COLS <- colorRampPalette(COLS)(length(PRED.2))
 for ( p in 1:length(PRED) ) {
 	pheno <- names(PRED)[p]
 	LIM <- range( unlist(lapply( PRED[[pheno]]$all, range )) )
@@ -303,13 +334,14 @@ for ( p in 1:length(PRED) ) {
 }
 
 ## Correlation b/n Observed & Predicted
-CORS <- array( ,c(9,4) )
+CORS <- array( ,c(9,length(PRED.2)) )
 colnames(CORS) <- names(PRED.2)
 rownames(CORS) <- colnames(PRED.2[[1]])
 for ( p in 1:length(PRED.2) ) { CORS[,p] <- cor( PRED.2[[p]] )[,1] }
 EXPL <- CORS^2
  # Plot it
 COLS <- c("firebrick2","gold2","chartreuse2","deepskyblue2")
+COLS <- colorRampPalette(COLS)(length(PRED.2))
 YLIM <- c(-1,1)
 jpeg( paste(PathToSave,"1b-Pred_v_Obs.COR.jpeg",sep=""), height=1800,width=2400,pointsize=30 )
 par(mfrow=c(2,1))
@@ -328,8 +360,9 @@ dev.off()
 
 ## Plot Lambda Values for each Model
 COLS <- c("firebrick2","gold2","chartreuse2","deepskyblue2")
+COLS <- colorRampPalette(COLS)(length(PRED.2))
 jpeg( paste(PathToSave,"2-LAMBDA_Boxplot.jpeg",sep=""), height=1800,width=2400,pointsize=30 )
-par(mfrow=c(2,2))
+par(mfrow=c(2,length(BETA)/2))
 for ( p in 1:length(BETA) ) {
 	pheno <- names(BETA)[p]
 	boxplot( log10(LAMBDA[[pheno]]), col=COLS[p], las=2, main=paste("Lambda vs Model Fit -",pheno),ylab="log10(Lambda) (per model in 10xCV)" )
@@ -397,28 +430,28 @@ for ( p in 1:length(BETA) ) {
 # tail( BETA.2$DEL_PANSS$SE$all )
 
 ## Plot Map of Genome w/ SNPs Included in Model
-COLS <- c("firebrick2","gold2","chartreuse2","deepskyblue2")
-for ( p in 1:length(BETA) ) {
-	pheno <- names(BETA)[p]
-	jpeg( paste(PathToSave,"3a-Param_Genome.",pheno,".jpeg",sep=""), height=2400,width=3000,pointsize=30 )
-	par(mfrow=c(2,2))
-	for ( l in 1:length(L.bins) ) {
-		lbin <- L.bins[l]
-		plot( BIM$CHR, BIM$POS, pch=20,col="black", main=paste("Variants Included in:",lbin,"-",pheno),xlab="Chromosome",ylab="Position",xaxt="n" )
-		axis( 1, at=1:24, labels=c(1:22,"X","Y") )
-		for ( i in 1:Num_Iter ) {
-			iter <- paste("I",i,sep="_")
-			WHICH <- which( BETA.2[[pheno]][[lbin]]$all[[iter]] != 0 )
-			WHICH <- WHICH[order(abs(BETA.2[[pheno]][[lbin]]$all[[iter]][WHICH]),decreasing=T)]
-			WHICH.SNP <- sapply( strsplit( rownames(BETA.2[[pheno]][[lbin]]$all)[WHICH], "_" ), "[",1 )
-			COLS.ramp <- c( colorRampPalette(c(gsub("2","4",COLS[p]),gsub("2","1",COLS[p])))(20),colorRampPalette(c(gsub("2","1",COLS[p]),"white"))(1.2*length(WHICH)) )[1:length(WHICH)]
-			WHICH.SNP.IN <- match( WHICH.SNP, BIM$SNP ) # which( BIM$SNP %in% WHICH.SNP )
-			points( .05*i+BIM$CHR[WHICH.SNP.IN], BIM$POS[WHICH.SNP.IN], pch="+",col=COLS.ramp )
-		}
-		points( BIM$CHR, BIM$POS, pch=20,col="black" )
-	}
-	dev.off()
-}
+# COLS <- c("firebrick2","gold2","chartreuse2","deepskyblue2")
+# for ( p in 1:length(BETA) ) {
+# 	pheno <- names(BETA)[p]
+# 	jpeg( paste(PathToSave,"3a-Param_Genome.",pheno,".jpeg",sep=""), height=2400,width=3000,pointsize=30 )
+# 	par(mfrow=c(2,2))
+# 	for ( l in 1:length(L.bins) ) {
+# 		lbin <- L.bins[l]
+# 		plot( BIM$CHR, BIM$POS, pch=20,col="black", main=paste("Variants Included in:",lbin,"-",pheno),xlab="Chromosome",ylab="Position",xaxt="n" )
+# 		axis( 1, at=1:24, labels=c(1:22,"X","Y") )
+# 		for ( i in 1:Num_Iter ) {
+# 			iter <- paste("I",i,sep="_")
+# 			WHICH <- which( BETA.2[[pheno]][[lbin]]$all[[iter]] != 0 )
+# 			WHICH <- WHICH[order(abs(BETA.2[[pheno]][[lbin]]$all[[iter]][WHICH]),decreasing=T)]
+# 			WHICH.SNP <- sapply( strsplit( rownames(BETA.2[[pheno]][[lbin]]$all)[WHICH], "_" ), "[",1 )
+# 			COLS.ramp <- c( colorRampPalette(c(gsub("2","4",COLS[p]),gsub("2","1",COLS[p])))(20),colorRampPalette(c(gsub("2","1",COLS[p]),"white"))(1.2*length(WHICH)) )[1:length(WHICH)]
+# 			WHICH.SNP.IN <- match( WHICH.SNP, BIM$SNP ) # which( BIM$SNP %in% WHICH.SNP )
+# 			points( .05*i+BIM$CHR[WHICH.SNP.IN], BIM$POS[WHICH.SNP.IN], pch="+",col=COLS.ramp )
+# 		}
+# 		points( BIM$CHR, BIM$POS, pch=20,col="black" )
+# 	}
+# 	dev.off()
+# }
 
 ## Boxplot Number of Predictors for MIN/MAX/BEST/SE
  # Compile # Parameters
@@ -443,6 +476,8 @@ for ( p in 1:length(BETA.2) ) {
 	}
 }
  # Boxplot of # Predictors in Model
+COLS <- c("firebrick2","gold2","chartreuse2","deepskyblue2")
+COLS <- colorRampPalette(COLS)(length(PRED.2))
 jpeg( paste(PathToSave,"3-Num_Param.jpeg",sep=""), height=1200,width=1800,pointsize=30 )
 par(mar=c(8,5,5,2))
 # par(mfrow=c(2,1)) ; for ( set in c("cov","all") ) {
@@ -454,7 +489,7 @@ for ( set in "all" ) {
 	boxplot( as.numeric(as.character(N_Param)) ~ Pheno+Lambda, data=N_PARAM, subset=N_PARAM[,"Set"]==set, 
 		main=paste("# Parameters per Model Fit -",set),ylab="# Parameter (per model in 10xCV)", col=COLS,las=2,add=T )
 }
-legend( "bottomleft", fill=COLS, legend=unique(N_PARAM[,"Pheno"]) )
+legend( "topleft", fill=COLS, legend=unique(N_PARAM[,"Pheno"]) )
 dev.off()
 
 ## Number of Predictors Included in Model
@@ -463,7 +498,8 @@ COLS.list <- c("firebrick2","chocolate2","gold1","springgreen2","steelblue2","sl
 COLS.iter <- colorRampPalette(COLS.list)(Num_Iter)
 jpeg( paste(PathToSave,"3-Param_v_Lambda.jpeg",sep=""), height=1500,width=3000,pointsize=36 )
 par(mar=c(8,5,5,5))
-par(mfrow=c(2,4))
+# par(mfrow=c(2,4))
+par(mfrow=c(2,length(BETA.2)))
  # Penalty & # Parameters vs Fit
 for ( p in 1:length(BETA.2) ) {
 	pheno <- names(BETA.2)[p]
@@ -473,12 +509,12 @@ for ( p in 1:length(BETA.2) ) {
 	plot( 0,0,type="n", xlim=XLIM,ylim=YLIM, main=paste("Model Fits vs Penalty -",pheno),ylab="% Deviance",xlab="log10(Lambda) (Penalization)",yaxt="n")
 	for ( i in 1:Num_Iter ) {
 		iter <- paste("I",i,sep="_")
-		points( log10(L[[pheno]]$all[[iter]]$lambda), L[[pheno]]$all[[iter]]$dev.ratio, type="l",col=COLS.iter[i] )
-		points( log10(L[[pheno]]$all[[iter]]$lambda), L[[pheno]]$all[[iter]]$df / YLIM.2[2], type="l",col=COLS.iter[i],lty=2 )
+		points( log10(L[[pheno]]$all[[iter]]$lambda), L[[pheno]]$all[[iter]]$dev.ratio, type="l",col=COLS.iter[i],lwd=2 )
+		points( log10(L[[pheno]]$all[[iter]]$lambda), L[[pheno]]$all[[iter]]$df / YLIM.2[2], type="l",col=COLS.iter[i],lty=2,lwd=2 )
 		axis( 2, at=seq(0,1,.2), las=2)
 		axis( 4, at=seq(0,1,.1), label=round(seq(0,YLIM.2[2],length.out=11)), las=2 )
 		mtext("# Parameters", side=4, line=3, cex=.7,las=0)
-		abline( v=log10(LAMBDA[[pheno]][i,grep("_A",colnames(LAMBDA[[pheno]]))]), col=COLS.iter[i],lty=1:4 )
+		abline( v=log10(LAMBDA[[pheno]][i,grep("_A",colnames(LAMBDA[[pheno]]))]), col=COLS.iter[i],lty=1:4,lwd=2 )
 		if ( p==1 ) {
 			legend( quantile(XLIM,.3),YLIM[2], lty=1:4,title="(Vertical)",legend=grep("_A",colnames(LAMBDA[[pheno]]),value=T),cex=.8)
 			legend( quantile(XLIM,.65),YLIM[2], lty=c(1,2),title="(Trace)",legend=c("% Dev","# Par"),cex=.8)
@@ -493,9 +529,9 @@ for ( p in 1:length(BETA.2) ) {
 	plot( 0,0,type="n", xlim=XLIM,ylim=YLIM, main=paste("Model Fits vs Penalty -",pheno),ylab=CV[[pheno]]$all[[iter]]$name,xlab="log10(Lambda) (Penalization)")
 	for ( i in 1:Num_Iter ) {
 		iter <- paste("I",i,sep="_")
-		points( log10(CV[[pheno]]$all[[iter]]$lambda), CV[[pheno]]$all[[iter]]$cvm, type="l",col=COLS.iter[i] )
+		points( log10(CV[[pheno]]$all[[iter]]$lambda), CV[[pheno]]$all[[iter]]$cvm, type="l",col=COLS.iter[i],lwd=2 )
 		arrows( log10(CV[[pheno]]$all[[iter]]$lambda), CV[[pheno]]$all[[iter]]$cvlo, log10(CV[[pheno]]$all[[iter]]$lambda), CV[[pheno]]$all[[iter]]$cvup, code=3,angle=90,length=.1,col=COLS.iter[i] )
-		abline( v=log10(LAMBDA[[pheno]][i,grep("_A",colnames(LAMBDA[[pheno]]))]), col=COLS.iter[i],lty=1:4 )
+		abline( v=log10(LAMBDA[[pheno]][i,grep("_A",colnames(LAMBDA[[pheno]]))]), col=COLS.iter[i],lty=1:4,lwd=2 )
 	}
 }
 dev.off()
@@ -505,6 +541,7 @@ Num_Par <- 30
 # COLS.list <- c("firebrick2","chocolate2","gold1","springgreen2","steelblue2","slateblue3")
 # COLS <- colorRampPalette(COLS.list)(Num_Par)
 COLS <- c("firebrick2","gold2","chartreuse2","deepskyblue2")
+COLS <- colorRampPalette(COLS)(length(PRED.2))
 for ( p in 1:length(BETA.2) ) {
 	pheno <- names(BETA.2)[p]
 	jpeg( paste(PathToSave,"4-BETA_Box.",pheno,".jpeg",sep=""), height=1200,width=2400,pointsize=36 )
@@ -538,7 +575,7 @@ for ( p in 1:length(BETA.2) ) {
 		if ( Num_Par=="all" ) {
 			Num_Par.iter <- nrow( TEMP )
 		}else{ Num_Par.iter <- min( Num_Par, nrow(TEMP) ) }
-		COL_COLS <- colorRampPalette(c("white","magenta3"))(Num_Par.iter)
+		COL_COLS <- colorRampPalette(c("magenta3","white"))(Num_Par.iter)
 		if ( nrow(TEMP)>1 ) {
 			jpeg( paste(PathToSave,"4-BETA_Heat.",pheno,".",lbin,".",Num_Par,".jpeg",sep=""), height=1200,width=2400,pointsize=30 )
 			# heatmap.2( t(data.matrix( TEMP[1:Num_Par.iter,] )), col=HEAT_COLS, breaks=HEAT_BRKS,
@@ -558,9 +595,11 @@ for ( p in 1:length(BETA.2) ) {
 print(paste( "Calculating Averaged Model Predictions" ))
 BETA.3 <- lapply( BETA.2, function(x) lapply( x, function(y) lapply( y, function(z) rowMeans(z) )))
 MG.3 <- data.frame( MG.2, 1 )
+# MG.3 <- MG.3[ which(MG.3$IID %in% rownames(PRED.2[[1]]) ), ]
+MG.3 <- MG.3[ which(MG.3$ID_2 %in% rownames(PRED.2[[1]]) ), ]
+colnames(MG.3) <- colnames(MG.2)
 colnames(MG.3)[ncol(MG.3)] <- "(Intercept)"
-MG.3 <- MG.3[ which(MG.3$IID %in% rownames(PRED.2[[1]]) ), ]
-Num_Par <- 500
+Num_Par <- 100
 # barplot( BETA.3$DEL_PANSS$SE$all )
 PRED.3 <- list()
 for ( p in 1:length(BETA.3) ) {
@@ -596,13 +635,13 @@ lapply( PRED.3.res, function(x) lapply( x, function(y) tail(y,1) ))
 XLIM <- c(0,Num_Par)
 YLIM <- c(-1,1)
 COLS <- c("firebrick2","gold2","chartreuse2","deepskyblue2")
+COLS <- colorRampPalette(COLS)(length(PRED.3))
 jpeg( paste(PathToSave,"5-Pred_AvgMod.jpeg",sep=""), height=1200,width=1600,pointsize=30 )
 plot( 0,0,type="n", xlim=XLIM,ylim=YLIM,xlab="# Parameters",ylab="Correlation Coefficient (Obs vs Pred)",main="Quality of Averaged Model" )
-abline( h=seq(-1,1,.2),lty=3,col="grey50" )
+abline( h=seq(-1,1,.25),lty=3,col="grey50" )
 abline( v=seq(0,Num_Par,25),lty=3,col="grey50" )
 for ( p in 1:length(BETA.3) ) {
 	pheno <- names(BETA.3)[p]
-	PRED.3[[pheno]] <- list()
 	for ( l in 1:length(L.bins) ) {
 		lbin <- L.bins[l]
 		x.temp <- PRED.3.res[[pheno]][[lbin]][-1]
